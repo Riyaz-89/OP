@@ -1,9 +1,7 @@
 import os
 import re
 import json
-import psutil
 import time
-import telebot
 import telebot
 import requests
 import pycountry
@@ -1086,45 +1084,6 @@ def handle_email_command(message):
         # Edit message with Markdown response
         bot.edit_message_text(header + body, message.chat.id, processing_msg.message_id, parse_mode='Markdown')
         
-
-@bot.message_handler(func=lambda message: message.text.lower().startswith(('/db', '!db', '.db')))
-def daily_stats(message):
-    try:
-        # Get system stats
-        ping_start = time.time()
-        bot.send_chat_action(message.chat.id, 'typing')
-        ping_end = time.time()
-        ping = int((ping_end - ping_start) * 1000)
-
-        cpu_usage = psutil.cpu_percent(interval=1)
-        disk_usage = psutil.disk_usage('/').percent
-        ram_usage = psutil.virtual_memory().percent
-        today = datetime.datetime.now().strftime("%Y-%m-%d")
-
-        user_count = users_collection.count_documents({})
-
-        # Build message
-        stats_message = (
-            "📊 *Daily Statistics:*\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            f"💠 *Date:* `{today}`\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            f"💠 *Ping:* `{ping}ms`\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            f"💠 *CPU:* `{cpu_usage}%`\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            f"💠 *Disk:* `{disk_usage}%`\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            f"💠 *RAM:* `{ram_usage}%`\n"
-            "━━━━━━━━━━━━━━━━━━\n"
-            f"💠 *Users used bot:* `{user_count}`\n"
-            "━━━━━━━━━━━━━━━━━━"
-        )
-
-        bot.send_message(message.chat.id, stats_message, parse_mode="Markdown")
-
-    except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Failed to fetch statistics:\n{e}")
 
 def polling():
     while True:
