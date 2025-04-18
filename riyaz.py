@@ -431,17 +431,17 @@ def bin_lookup(message):
 
                 formatted_text = (
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"BIN : <code>{data['bin']}</code>\n"
-                    f"INFO : {data['brand']} - {data['type']} - {data['level']}\n"
-                    f"BANK : {data['bank']}\n"
-                    f"COUNTRY : {country_flagged}"
+                    f"[↯] 𝐁𝐢𝐧 : <code>{data['bin']}</code>\n"
+                    f"[↯] 𝐈𝐧𝐟𝐨 : {data['brand']} - {data['type']} - {data['level']}\n"
+                    f"[↯] 𝐁𝐚𝐧𝐤 : {data['bank']}\n"
+                    f"[↯] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲 : {country_flagged}"
                 )
                 formatted_file = (
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"BIN : {data['bin']}\n"
-                    f"INFO : {data['brand']} - {data['type']} - {data['level']}\n"
-                    f"BANK : {data['bank']}\n"
-                    f"COUNTRY : {country_flagged}"
+                    f"[↯] 𝐁𝐢𝐧 : {data['bin']}\n"
+                    f"[↯] 𝐈𝐧𝐟𝐨 : {data['brand']} - {data['type']} - {data['level']}\n"
+                    f"[↯] 𝐁𝐚𝐧𝐤 : {data['bank']}\n"
+                    f"[↯] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲 : {country_flagged}"
                 )
                 results_text.append(formatted_text)
                 results_file.append(formatted_file)
@@ -452,8 +452,8 @@ def bin_lookup(message):
             bot.edit_message_text("❌ No valid BINs with bank name found.", chat_id=message.chat.id, message_id=processing_msg.message_id)
             return
 
-        header_html = f"<b>TOTAL BIN: {total_valid}</b>\n\n"
-        header_txt = f"TOTAL BIN: {total_valid}\n\n"
+        header_html = f"<b>[⌬] 𝐁𝐈𝐍 𝐋𝐎𝐎𝐊𝐔𝐏 ♻️: {total_valid}</b>\n\n"
+        header_txt = f"[⌬] 𝐁𝐈𝐍 𝐋𝐎𝐎𝐊𝐔𝐏 ♻️: {total_valid}\n\n"
 
         if total_valid > 15:
             filename = f"bin_result_{message.from_user.id}.txt"
@@ -1024,7 +1024,7 @@ def process_delete_confirmation(message):
     
     start_command(message)  # Back to main menu
 
-@bot.message_handler(func=lambda message: message.text.lower().startswith(('/email', '!email', '.email')))
+@bot.message_handler(func=lambda message: message.text.lower().startswith(('/ff', '!ff', '.ff')))
 def handle_email_command(message):
     if not message.reply_to_message:
         bot.reply_to(message, "Please reply to a message containing email:password data (document or text).")
@@ -1084,6 +1084,60 @@ def handle_email_command(message):
         # Edit message with Markdown response
         bot.edit_message_text(header + body, message.chat.id, processing_msg.message_id, parse_mode='Markdown')
         
+
+@bot.message_handler(func=lambda message: message.text.lower().startswith(('/email', '!email', '.email')))
+def handle_email_command(message):
+    if not message.reply_to_message:
+        bot.reply_to(message, "Reply to a message containing text or document.")
+        return
+
+    processing_msg = bot.reply_to(message, "⏳ Processing...")
+
+    text_data = ""
+    if message.reply_to_message.document:
+        try:
+            file_id = message.reply_to_message.document.file_id
+            file_info = bot.get_file(file_id)
+            file = requests.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}')
+            text_data = file.text.strip()
+        except:
+            bot.edit_message_text("Failed to download or read the document.", message.chat.id, processing_msg.message_id)
+            return
+
+    elif message.reply_to_message.text:
+        text_data = message.reply_to_message.text.strip()
+
+    else:
+        bot.edit_message_text("Unsupported message format. Please reply to text or document.", message.chat.id, processing_msg.message_id)
+        return
+
+    start_time = time.time()
+
+    # Regex to extract only email:password
+    cleaned_lines = []
+    pattern = r"([\w\.-]+@[\w\.-]+\.\w+:[^\s|]+)"
+    for line in text_data.splitlines():
+        match = re.search(pattern, line)
+        if match:
+            cleaned_lines.append(match.group(1))
+
+    # Save to file
+    with open("clean.txt", "w") as f:
+        f.write("\n".join(cleaned_lines))
+
+    elapsed = time.time() - start_time
+    total_lines = len(text_data.splitlines())
+    speed = total_lines / elapsed if elapsed > 0 else 0
+
+    # Send cleaned file
+    with open("clean.txt", "rb") as doc:
+        bot.send_document(
+            message.chat.id,
+            doc,
+            caption=f"✅ 𝗖𝗹𝗲𝗮𝗻𝗶𝗻𝗴 𝗖𝗼𝗺𝗽𝗹𝗲𝘁𝗲!\n\n✅ 𝗕𝗮𝘁𝗰𝗵 1 | {total_lines:,} 𝗟𝗶𝗻𝗲𝘀\n📊 𝗧𝗼𝘁𝗮𝗹 𝗟𝗶𝗻𝗲𝘀: {total_lines}\n⏱️ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {elapsed:.2f} seconds\n⚡ 𝗦𝗽𝗲𝗲𝗱: {speed:,.2f} Line/second\n🚀 𝗨𝘀𝗮𝗴𝗲: {speed * 60:,.2f} Line/minute"
+        )
+    
+    bot.delete_message(message.chat.id, processing_msg.message_id)
 
 def polling():
     while True:
