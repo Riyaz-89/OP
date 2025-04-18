@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import psutil
 import time
 import telebot
 import telebot
@@ -34,6 +35,11 @@ bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 # Regex pattern to match card information
 CARD_PATTERN = re.compile(r'(\d{15,16})[|/](\d{1,2})[|/](\d{2,4})[|/](\d{3,4})')
 
+# Regex pattern to match email:password
+EMAIL_PATTERN = re.compile(r'([\w\.-]+@[\w\.-]+\.\w+):([^\s|]+)')
+
+def extract_emails(text):
+    return EMAIL_PATTERN.findall(text)
 
 def get_bot_profile_photo():
     try:
@@ -932,40 +938,62 @@ def export_users(message):
 # Import Users
 @bot.message_handler(func=lambda message: message.text == "📥 Import Users" and str(message.chat.id) == ADMIN_ID)
 def import_users(message):
-    bot.reply_to(message, "Please upload a JSON file containing user data.")
+    bot.reply_to(message, "📤 Please upload a JSON file containing user data.")
     bot.register_next_step_handler(message, process_import)
 
 def process_import(message):
-    try:
-        if message.document is None:
-            bot.reply_to(message, "No file uploaded. Please try again.")
-            return
+    if not message.document:
+        bot.reply_to(message, "❌ No file uploaded. Please send a valid JSON file.")
+        return
 
+    try:
+        # Send loading message
+        processing_msg = bot.send_message(message.chat.id, "⏳ Processing file, please wait...")
+
+        # Download the file
         file_info = bot.get_file(message.document.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
-        filename = "users_import.json"
 
+        # Save file
+        filename = f"users_import_{message.chat.id}.json"
         with open(filename, "wb") as file:
             file.write(downloaded_file)
 
+        # Load user data
         with open(filename, "r") as file:
             users = json.load(file)
+
+        # Get all existing user_ids to speed up check
+        existing_ids = set(user["user_id"] for user in users_collection.find({}, {"user_id": 1}))
 
         imported_count = 0
         for user in users:
             user_id = user.get("user_id")
-            if user_id and not users_collection.find_one({"user_id": user_id}):
+            if user_id and user_id not in existing_ids:
                 users_collection.insert_one(user)
                 imported_count += 1
 
+        # Clean up temp file
         os.remove(filename)
 
+        # Edit the "Processing..." message to final result
         if imported_count > 0:
-            bot.reply_to(message, f"✅ Successfully imported {imported_count} users!")
+            bot.edit_message_text(
+                f"✅ Successfully imported {imported_count} users!",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
         else:
-            bot.reply_to(message, "All users already exist. No new users were imported.")
+            bot.edit_message_text(
+                "ℹ️ All users already exist. No new users were imported.",
+                chat_id=message.chat.id,
+                message_id=processing_msg.message_id
+            )
+
     except Exception as e:
-        bot.reply_to(message, f"Failed to import user data: {e}")
+        bot.send_message(message.chat.id, f"❌ Failed to import user data:\n{e}")
+        if os.path.exists(filename):
+            os.remove(filename)
 
 # Delete All Users with confirmation
 @bot.message_handler(func=lambda message: message.text == "❌ Delete All Users" and str(message.chat.id) == ADMIN_ID)
@@ -997,6 +1025,105 @@ def process_delete_confirmation(message):
     
     start_command(message)  # Back to main menu
 
+@bot.message_handler(func=lambda message: message.text.lower().startswith(('/email', '!email', '.email')))
+def handle_email_command(message):
+    if not message.reply_to_message:
+        bot.reply_to(message, "Please reply to a message containing email:password data (document or text).")
+        return
+
+    # Send processing message
+    processing_msg = bot.reply_to(message, "⏳ Processing...")
+
+    text_data = ''
+    is_document = False
+
+    # Check if the replied message is a document
+    if message.reply_to_message.document:
+        is_document = True
+        try:
+            file_id = message.reply_to_message.document.file_id
+            file_info = bot.get_file(file_id)
+            file = requests.get(f'https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}')
+            text_data = file.text.strip()
+        except:
+            bot.edit_message_text("Failed to download or read the document.", message.chat.id, processing_msg.message_id)
+            return
+
+    # Check if the replied message is text
+    elif message.reply_to_message.text:
+        text_data = message.reply_to_message.text.strip()
+
+    # Extract email:password pairs
+    matches = extract_emails(text_data)
+    total_email = len(matches)
+
+    # If no valid emails
+    if total_email == 0:
+        bot.edit_message_text("No valid email:password pairs found.", message.chat.id, processing_msg.message_id)
+        return
+
+    # Build response
+    header = f"Total Email : {total_email}\n\n"
+    body = ""
+
+    for email, password in matches:
+        # Use Markdown formatting for all text responses
+        body += f"━━━━━━━━━━━━━━━━━━\nEmail : `{email}`\nPassword : `{password}`\n"
+
+    body += "━━━━━━━━━━━━━━━━━━"
+
+    # If more than 20 emails, always send as document file
+    if total_email > 20:
+        filename = f"email_result_{message.from_user.id}.txt"
+        with open(filename, 'w') as f:
+            f.write(header + body.replace('`', ''))  # Remove backticks for file output
+        with open(filename, 'rb') as f:
+            bot.delete_message(message.chat.id, processing_msg.message_id)
+            bot.send_document(message.chat.id, f)
+        os.remove(filename)
+    else:
+        # Edit message with Markdown response
+        bot.edit_message_text(header + body, message.chat.id, processing_msg.message_id, parse_mode='Markdown')
+        
+
+@bot.message_handler(commands=['db'])
+def daily_stats(message):
+    try:
+        # Get system stats
+        ping_start = time.time()
+        bot.send_chat_action(message.chat.id, 'typing')
+        ping_end = time.time()
+        ping = int((ping_end - ping_start) * 1000)
+
+        cpu_usage = psutil.cpu_percent(interval=1)
+        disk_usage = psutil.disk_usage('/').percent
+        ram_usage = psutil.virtual_memory().percent
+        today = datetime.datetime.now().strftime("%Y-%m-%d")
+
+        user_count = users_collection.count_documents({})
+
+        # Build message
+        stats_message = (
+            "📊 *Daily Statistics:*\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"💠 *Date:* `{today}`\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"💠 *Ping:* `{ping}ms`\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"💠 *CPU:* `{cpu_usage}%`\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"💠 *Disk:* `{disk_usage}%`\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"💠 *RAM:* `{ram_usage}%`\n"
+            "━━━━━━━━━━━━━━━━━━\n"
+            f"💠 *Users used bot:* `{user_count}`\n"
+            "━━━━━━━━━━━━━━━━━━"
+        )
+
+        bot.send_message(message.chat.id, stats_message, parse_mode="Markdown")
+
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ Failed to fetch statistics:\n{e}")
 
 def polling():
     while True:
@@ -1005,7 +1132,6 @@ def polling():
         except Exception as e:
             print(f"Polling error: {e}")
             time.sleep(3)
-
 
 if __name__ == "__main__":
     print("Bot started...")
