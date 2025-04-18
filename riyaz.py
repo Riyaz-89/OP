@@ -7,6 +7,7 @@ import telebot
 import telebot
 import requests
 import pycountry
+import datetime
 from telebot import TeleBot, types
 from datetime import datetime
 from random import randint
@@ -1086,7 +1087,7 @@ def handle_email_command(message):
         bot.edit_message_text(header + body, message.chat.id, processing_msg.message_id, parse_mode='Markdown')
         
 
-@bot.message_handler(commands=['db'])
+@bot.message_handler(func=lambda message: message.text.lower().startswith(('/db', '!db', '.db')))
 def daily_stats(message):
     try:
         # Get system stats
