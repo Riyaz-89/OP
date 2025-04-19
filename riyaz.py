@@ -616,31 +616,37 @@ def vis_command(message):
     user_id = message.from_user.id
     if not is_user_in_channel(user_id):
         force_user_to_join(user_id)
-        return  # Only return if user needs to join channel
-    
+        return  # Return if user must join channel
+
     if message.reply_to_message and message.reply_to_message.document:
         try:
             # Send processing message
             processing_msg = bot.reply_to(message, "⏳ Processing...")
-            
+
             # Get the file from the replied message
             file_id = message.reply_to_message.document.file_id
             file_info = bot.get_file(file_id)
             file_url = f'https://api.telegram.org/file/bot{BOT_TOKEN}/{file_info.file_path}'
-            
-            # Start time for performance measurement
+
+            # Start timer
             start_time = time.time()
-            
+
+            # Fetch and decode file content
             file_response = requests.get(file_url)
-            file_text = file_response.text
+            file_text = file_response.content.decode('utf-8', errors='ignore')
 
             # Extract card information
-            extracted_cards = {"visa": [], "mastercard": [], "amex": [], "discover": [], "union": []}
+            extracted_cards = {
+                "visa": [],
+                "mastercard": [],
+                "amex": [],
+                "discover": [],
+                "union": []
+            }
 
             for match in CARD_PATTERN.findall(file_text):
                 card_number, month, year, cvv = match
-                
-                # Check the starting digit and categorize accordingly
+
                 if card_number.startswith('3'):
                     extracted_cards["amex"].append(f"{card_number}|{month}|{year}|{cvv}")
                 elif card_number.startswith('4'):
@@ -652,20 +658,18 @@ def vis_command(message):
                 elif card_number.startswith('8'):
                     extracted_cards["union"].append(f"{card_number}|{month}|{year}|{cvv}")
 
-            # Create output files for each card type
+            # Create output files
             output_files = {}
             for card_type, cards in extracted_cards.items():
                 if cards:
                     output_file_name = f"{card_type}_cards.txt"
-                    with open(output_file_name, "w") as f:
+                    with open(output_file_name, "w", encoding="utf-8") as f:
                         f.write("\n".join(cards))
                     output_files[card_type] = (output_file_name, len(cards))
 
-            # Calculate time taken
+            # Stats
             end_time = time.time()
             time_taken = round(end_time - start_time, 2)
-
-            # Get card counts
             total_cards = sum(count for _, count in output_files.values())
             visa_count = len(extracted_cards["visa"])
             mastercard_count = len(extracted_cards["mastercard"])
@@ -673,39 +677,41 @@ def vis_command(message):
             discover_count = len(extracted_cards["discover"])
             union_count = len(extracted_cards["union"])
 
-            # Prepare statistics message
+            # Stats message
             stats_message = (
-                "📊 Sorting Statistics!\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                f"💳 Total cards: {total_cards}\n"
-                f"Visa: {visa_count}\n"
-                f"MasterCard: {mastercard_count}\n"
-                f"Amex: {amex_count}\n"
-                f"Discover: {discover_count}\n"
-                f"Union: {union_count}\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                f"⏱️ Time taken: {time_taken} seconds"
+                "<b>━━━━━━━━━━━━━━━━━━━━━━\n"
+                "[⌬] 𝐒𝐎𝐑𝐓𝐈𝐍𝐆 𝐒𝐓𝐀𝐓𝐈𝐒𝐓𝐈𝐂𝐒 ♻️\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"[ϟ] 𝐓𝐨𝐭𝐚𝐥 𝐂𝐚𝐫𝐝𝐬 : {total_cards}\n"
+                f"[ϟ] 𝐕𝐢𝐬𝐚 : {visa_count}\n"
+                f"[ϟ] 𝐌𝐚𝐬𝐭𝐞𝐫 : {mastercard_count}\n"
+                f"[ϟ] 𝐀𝐦𝐞𝐱 : {amex_count}\n"
+                f"[ϟ] 𝐃𝐢𝐬𝐜𝐨𝐯𝐞𝐫 : {discover_count}\n"
+                f"[ϟ] 𝐔𝐧𝐢𝐨𝐧 : {union_count}\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"[✗] 𝐓𝐢𝐦𝐞 𝐓𝐚𝐤𝐞𝐧 : {time_taken} seconds\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                '[✗] 𝐃𝐞𝐯 : <a href="tg://user?id=7915760293">ıllı 𝐑𝐈𝐘𝐀𝐙 ıllı 𝙓✧</a>\n'
+                "━━━━━━━━━━━━━━━━━━━━━━</b>"
             )
 
-            # Edit the original processing message to show stats
             bot.edit_message_text(
                 chat_id=message.chat.id,
                 message_id=processing_msg.message_id,
-                text=stats_message
+                text=stats_message,
+                parse_mode="HTML"
             )
 
-            # Send the output files back to the user with counts in captions
+            # Send each card type document
             for card_type, (output_file, count) in output_files.items():
                 with open(output_file, "rb") as f:
                     bot.send_document(
-                        message.chat.id,
-                        f,
+                        chat_id=message.chat.id,
+                        document=f,
                         caption=f"📁 {card_type.capitalize()} Cards - {count}"
                     )
-                # Remove the temporary output files after sending
                 os.remove(output_file)
 
-            # Now send the completion message after all files are sent
             bot.send_message(message.chat.id, "✅ Sorting Complete!")
 
         except Exception as e:
@@ -1026,6 +1032,11 @@ def process_delete_confirmation(message):
 
 @bot.message_handler(func=lambda message: message.text.lower().startswith(('/ff', '!ff', '.ff')))
 def handle_email_command(message):
+    user_id = message.from_user.id
+    if not is_user_in_channel(user_id):
+        force_user_to_join(user_id)
+        return  # Only return if user needs to join channel
+    
     if not message.reply_to_message:
         bot.reply_to(message, "Please reply to a message containing email:password data (document or text).")
         return
@@ -1087,6 +1098,11 @@ def handle_email_command(message):
 
 @bot.message_handler(func=lambda message: message.text.lower().startswith(('/email', '!email', '.email')))
 def handle_email_command(message):
+    user_id = message.from_user.id
+    if not is_user_in_channel(user_id):
+        force_user_to_join(user_id)
+        return  # Only return if user needs to join channel
+
     if not message.reply_to_message:
         bot.reply_to(message, "Reply to a message containing text or document.")
         return
@@ -1106,7 +1122,6 @@ def handle_email_command(message):
 
     elif message.reply_to_message.text:
         text_data = message.reply_to_message.text.strip()
-
     else:
         bot.edit_message_text("Unsupported message format. Please reply to text or document.", message.chat.id, processing_msg.message_id)
         return
@@ -1122,7 +1137,8 @@ def handle_email_command(message):
             cleaned_lines.append(match.group(1))
 
     # Save to file
-    with open("clean.txt", "w") as f:
+    filename = "clean.txt"
+    with open(filename, "w") as f:
         f.write("\n".join(cleaned_lines))
 
     elapsed = time.time() - start_time
@@ -1130,13 +1146,17 @@ def handle_email_command(message):
     speed = total_lines / elapsed if elapsed > 0 else 0
 
     # Send cleaned file
-    with open("clean.txt", "rb") as doc:
+    with open(filename, "rb") as doc:
         bot.send_document(
             message.chat.id,
             doc,
-            caption=f"✅ 𝗖𝗹𝗲𝗮𝗻𝗶𝗻𝗴 𝗖𝗼𝗺𝗽𝗹𝗲𝘁𝗲!\n\n✅ 𝗕𝗮𝘁𝗰𝗵 1 | {total_lines:,} 𝗟𝗶𝗻𝗲𝘀\n📊 𝗧𝗼𝘁𝗮𝗹 𝗟𝗶𝗻𝗲𝘀: {total_lines}\n⏱️ 𝗧𝗼𝘁𝗮𝗹 𝗧𝗶𝗺𝗲: {elapsed:.2f} seconds\n⚡ 𝗦𝗽𝗲𝗲𝗱: {speed:,.2f} Line/second\n🚀 𝗨𝘀𝗮𝗴𝗲: {speed * 60:,.2f} Line/minute"
+            caption=f"[↯] 𝐁𝐚𝐭𝐜𝐡 𝟏 | {total_lines:,} 𝐋𝐢𝐧𝐞𝐬 ♻️\n\n[↯] 𝐓𝐨𝐭𝐚𝐥 𝐋𝐢𝐧𝐞 : {total_lines}\n[↯] 𝐓𝐨𝐭𝐚𝐥 𝐓𝐢𝐦𝐞 : {elapsed:.4f} seconds\n[↯] 𝐒𝐩𝐞𝐞𝐝 : {speed:,.2f} 𝐋𝐢𝐧𝐞/𝐒𝐞𝐜𝐨𝐧𝐝\n[↯] 𝐔𝐬𝐚𝐠𝐞 : {speed * 60:,.2f} 𝐋𝐢𝐧𝐞/𝐌𝐢𝐧𝐮𝐭𝐞", parse_mode="HTML"
         )
-    
+
+    # Remove the temporary file
+    os.remove(filename)
+
+    # Remove the processing message
     bot.delete_message(message.chat.id, processing_msg.message_id)
 
 def polling():
