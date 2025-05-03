@@ -1096,12 +1096,12 @@ def handle_email_command(message):
         bot.edit_message_text(header + body, message.chat.id, processing_msg.message_id, parse_mode='Markdown')
         
 
-@bot.message_handler(func=lambda message: message.text.lower().startswith(('/email', '!email', '.email')))
+@bot.message_handler(func=lambda message: message.text.lower().startswith(('/ulp', '!ulp', '.ulp')))
 def handle_email_command(message):
     user_id = message.from_user.id
     if not is_user_in_channel(user_id):
         force_user_to_join(user_id)
-        return  # Only return if user needs to join channel
+        return
 
     if not message.reply_to_message:
         bot.reply_to(message, "Reply to a message containing text or document.")
@@ -1128,15 +1128,19 @@ def handle_email_command(message):
 
     start_time = time.time()
 
-    # Regex to extract only email:password
-    cleaned_lines = []
-    pattern = r"([\w\.-]+@[\w\.-]+\.\w+:[^\s|]+)"
-    for line in text_data.splitlines():
-        match = re.search(pattern, line)
-        if match:
-            cleaned_lines.append(match.group(1))
+    # Regex patterns for email:password and number:password
+    email_pattern = r"([\w\.-]+@[\w\.-]+\.\w+:[^\s|]+)"
+    number_pattern = r"(\+?\d{7,15}:[^\s|]+)"  # supports numbers like +88017... or 017...
 
-    # Save to file
+    cleaned_lines = []
+    for line in text_data.splitlines():
+        email_match = re.search(email_pattern, line)
+        number_match = re.search(number_pattern, line)
+        if email_match:
+            cleaned_lines.append(email_match.group(1))
+        elif number_match:
+            cleaned_lines.append(number_match.group(1))
+
     filename = "clean.txt"
     with open(filename, "w") as f:
         f.write("\n".join(cleaned_lines))
@@ -1145,7 +1149,6 @@ def handle_email_command(message):
     total_lines = len(text_data.splitlines())
     speed = total_lines / elapsed if elapsed > 0 else 0
 
-    # Send cleaned file
     with open(filename, "rb") as doc:
         bot.send_document(
             message.chat.id,
@@ -1153,10 +1156,7 @@ def handle_email_command(message):
             caption=f"[↯] 𝐁𝐚𝐭𝐜𝐡 𝟏 | {total_lines:,} 𝐋𝐢𝐧𝐞𝐬 ♻️\n\n[↯] 𝐓𝐨𝐭𝐚𝐥 𝐋𝐢𝐧𝐞 : {total_lines}\n[↯] 𝐓𝐨𝐭𝐚𝐥 𝐓𝐢𝐦𝐞 : {elapsed:.4f} seconds\n[↯] 𝐒𝐩𝐞𝐞𝐝 : {speed:,.2f} 𝐋𝐢𝐧𝐞/𝐒𝐞𝐜𝐨𝐧𝐝\n[↯] 𝐔𝐬𝐚𝐠𝐞 : {speed * 60:,.2f} 𝐋𝐢𝐧𝐞/𝐌𝐢𝐧𝐮𝐭𝐞", parse_mode="HTML"
         )
 
-    # Remove the temporary file
     os.remove(filename)
-
-    # Remove the processing message
     bot.delete_message(message.chat.id, processing_msg.message_id)
 
 def polling():
